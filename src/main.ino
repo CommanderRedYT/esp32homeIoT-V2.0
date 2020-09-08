@@ -508,7 +508,7 @@ void sendNECcode() {
 //}
 
 void webLamp() {
-  http.begin("https://maker.ifttt.com/trigger/espLight/with/key/-Sb96lg3sUpBIi7l4MnOkP4ZtCOslMbsEzT73txf9k");
+  http.begin("");
   http.GET();
 }
 
