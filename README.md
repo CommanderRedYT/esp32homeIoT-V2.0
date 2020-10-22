@@ -1,17 +1,15 @@
 # esp32HomeIoT-V2.0
-It's V2.0 because
- 1. I don't have the original files and new ones are corrupted
- 2. Because i am bored
 
-# main.cpp remains without good settings layout until I have time to layout it!!! Modify at risk of program not working
+This software is a github-port from my personal IoT-System. It uses an ESP32-Devboard, an DHT-Sensor, a relay and a IR-led.
 
+I dont know if you find a good use for it so modify it as you like!
 ## Used Librarys:
-- ThingerESP32 (https://github.com/thinger-io/Arduino-Library)
+- ThingerESP32 (https://github.com/thinger-io/Arduino-Library) - Used as online api.
 
-- WiFi, WiFiMulti, WiFiUdp (https://github.com/espressif/arduino-esp32/tree/master/libraries)
+- WiFi, WiFiMulti, WiFiUdp (https://github.com/espressif/arduino-esp32/tree/master/libraries) Used for wifi connection. WiFiUdp is a dependency of WakeOnLan.
 
-- WakeOnLan (https://github.com/a7md0/WakeOnLan)
+- WakeOnLan (https://github.com/a7md0/WakeOnLan) Used to turn on a WoL-Device.
 
-- IRremoteESP8266 (https://github.com/crankyoldgit/IRremoteESP8266)
+- IRremoteESP8266 (https://github.com/crankyoldgit/IRremoteESP8266) Used to control ir led to make things like AV-receivers controlable from the internet.
 
-- Sinric.pro (https://github.com/sinricpro/esp8266-esp32-sdk)
+- Sinric.pro (https://github.com/sinricpro/esp8266-esp32-sdk) Amazon Echo sdk
