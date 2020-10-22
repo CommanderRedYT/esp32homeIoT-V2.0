@@ -1,5 +1,46 @@
 #include <Arduino.h>
-#define _DEBUG_
+
+//Start User Settings
+
+//#define _DEBUG_ //Uncomment if you want to enable debug mode
+
+    //WiFi
+    const char *ssid = "";
+    const char *password = "";
+    const char *WIFI_SSID = "";
+    const char *WIFI_PASS = "";
+
+    //thinger.io
+    #define USERNAME ""
+    #define DEVICE_ID ""
+    #define DEVICE_CREDENTIAL ""
+
+    //sinric.pro
+    #define APP_KEY ""    // Should look like "de0bxxxx-1x3x-4x3x-ax2x-5dabxxxxxxxx" //Sinric.pro
+    #define APP_SECRET "" // Should look like "5f36xxxx-x3x7-4x3x-xexe-e86724a9xxxx-4c4axxxx-3x3x-x5xe-x9x3-333d65xxxxxx"
+    #define LIGHT_ID ""   // Should look like "5dc1564130xxxxxxxxxxxxxx"
+
+    //WakeOnLan
+    const char *MACAddress = "";
+
+    //Custom HTTP GET-Request (I use it in combination with IFTTT to control a TP-Link Smartplug)
+    const char *url = "";
+
+    //DHT-config
+    #define DHTPIN 19
+    #define DHTTYPE DHT11
+
+    //External Relay
+    #define RELAY 4
+
+    //IR-pin (connected to transistor to control ir led)
+    const uint16_t SEND_PIN = 5;
+
+    //Serial Monitor Baud Rate
+    #define BAUD_RATE 115200
+
+
+//End User Settings
 
 #ifdef _DEBUG_
 #define DEBUG_ESP_PORT Serial
@@ -7,7 +48,6 @@
 #define NDEBUG
 #endif
 
-#include <Arduino.h>
 #include <ThingerESP32.h>
 #include <WiFi.h>
 #include <WiFiMulti.h>
@@ -20,27 +60,6 @@
 #include "SinricProLight.h"
 #include <DHT.h>
 #include <DHT_U.h>
-
-const char *ssid = "";
-const char *password = "";
-const char *WIFI_SSID = "";
-const char *WIFI_PASS = "";
-#define USERNAME ""
-#define DEVICE_ID ""
-#define DEVICE_CREDENTIAL ""
-
-#define APP_KEY ""                                         // Should look like "de0bxxxx-1x3x-4x3x-ax2x-5dabxxxxxxxx" //Sinric.pro
-#define APP_SECRET "" // Should look like "5f36xxxx-x3x7-4x3x-xexe-e86724a9xxxx-4c4axxxx-3x3x-x5xe-x9x3-333d65xxxxxx"
-#define LIGHT_ID ""                                                    // Should look like "5dc1564130xxxxxxxxxxxxxx"
-
-const char *MACAddress = "";
-const char *url = "";
-
-#define DHTPIN 19
-#define RELAY 4
-const uint16_t SEND_PIN = 5;
-#define DHTTYPE DHT11
-#define BAUD_RATE 115200
 
 bool led = false;
 bool wol = false;
@@ -69,6 +88,16 @@ unsigned int dataNEC = 0x00000000;
 float h;
 float t;
 float hic;
+
+ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
+HTTPClient http;
+WiFiMulti wifiMulti;
+WebSocketsClient webSocket;
+WiFiClient client;
+WiFiUDP UDP;
+WakeOnLan WOL(UDP);
+IRsend irsend(SEND_PIN);
+DHT dht(DHTPIN, DHTTYPE);
 
 #define HEARTBEAT_INTERVAL 300000
 uint64_t heartbeatTimestamp = 0;
@@ -107,17 +136,25 @@ bool onPowerState(const String &deviceId, bool &state)
     Serial.printf("Device %s power turned %s \r\n", deviceId.c_str(), state ? "on" : "off");
     device_state.powerState = state;
     if (state)
+    {
+        dataNEC = 0xFF02FD;
+        requested = true;
+        if (requested == !boolStripStatus)
         {
-            dataNEC = 0xFF02FD;
-            requested = true;
-            sendStripCode();
+            irsend.sendNEC(dataNEC);
+            boolStripStatus = !boolStripStatus;
         }
-        else
+    }
+    else
+    {
+        dataNEC = 0xFF02FD;
+        requested = false;
+        if (requested == !boolStripStatus)
         {
-            dataNEC = 0xFF02FD;
-            requested = false;
-            sendStripCode();
+            irsend.sendNEC(dataNEC);
+            boolStripStatus = !boolStripStatus;
         }
+    }
     return true; // request handled properly
 }
 
@@ -200,16 +237,6 @@ void setupSinricPro()
     SinricPro.begin(APP_KEY, APP_SECRET);
 }
 
-ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
-HTTPClient http;
-WiFiMulti wifiMulti;
-WebSocketsClient webSocket;
-WiFiClient client;
-WiFiUDP UDP;
-WakeOnLan WOL(UDP);
-IRsend irsend(SEND_PIN);
-DHT dht(DHTPIN, DHTTYPE);
-
 void setup()
 {
     Serial.begin(BAUD_RATE);
@@ -226,11 +253,13 @@ void setup()
     WiFi.begin(ssid, password);
 
     int wifiTry = 0;
-    while (WiFi.status() != WL_CONNECTED) {
+    while (WiFi.status() != WL_CONNECTED)
+    {
         delay(100);
         Serial.print(".");
         wifiTry++;
-        if(wifiTry == 10){
+        if (wifiTry == 10)
+        {
             wifiTry = 0;
             WiFi.begin(ssid, password);
         }
@@ -261,91 +290,107 @@ void setup()
     };
     thing["webledstripToggle"] << [](pson &in) {
         ledstripToggle = in;
-        IRledstripToggle();
+        dataNEC = 0xFF02FD;
+        irsend.sendNEC(dataNEC);
+        boolStripStatus = !boolStripStatus;
         ledstripToggle = false;
         Serial.println("ledstripToggle");
     };
     thing["webledstripBrighter"] << [](pson &in) {
         ledstripBrighter = in;
-        IRledstripBrighter();
+        dataNEC = 0xFF9867;
+        irsend.sendNEC(dataNEC);
         ledstripBrighter = false;
         Serial.println("ledstripBrighter");
     };
     thing["webledstripDarker"] << [](pson &in) {
         ledstripDarker = in;
-        IRledstripDarker();
+        dataNEC = 0xFF18E7;
+        irsend.sendNEC(dataNEC);
         ledstripDarker = false;
         Serial.println("ledstripDarker");
     };
     thing["webavPower"] << [](pson &in) {
         avPower = in;
-        IRavPower();
+        dataNEC = 0x5EA1F807;
+        irsend.sendNEC(dataNEC);
         avPower = false;
         Serial.println("webavPower");
     };
     thing["webavVolup"] << [](pson &in) {
         avVolup = in;
-        IRavVolup();
+        dataNEC = 0x5EA158A7;
+        irsend.sendNEC(dataNEC);
         avVolup = false;
         Serial.println("avVolup");
     };
     thing["webavVoldown"] << [](pson &in) {
         avVoldown = in;
-        IRavVoldown();
+        dataNEC = 0x5EA1D827;
+        irsend.sendNEC(dataNEC);
         avVoldown = false;
         Serial.println("avVoldown");
     };
     thing["webavMute"] << [](pson &in) {
         avMute = in;
-        IRavMute();
+        dataNEC = 0x5EA138C7;
+        irsend.sendNEC(dataNEC);
         avMute = false;
         Serial.println("avMute");
     };
     thing["webavDVD"] << [](pson &in) {
         avDVD = in;
-        IRavDVD();
+        dataNEC = 0x5EA1837C;
+        irsend.sendNEC(dataNEC);
         avDVD = false;
         Serial.println("avDVD");
     };
     thing["webavTuner"] << [](pson &in) {
         avTuner = in;
-        IRavTuner();
+        dataNEC = 0x5EA16897;
+        irsend.sendNEC(dataNEC);
         avTuner = false;
         Serial.println("avTuner");
     };
     thing["webavAux"] << [](pson &in) {
         avAux = in;
-        IRavAux();
+        dataNEC = 0x5EA1AA55;
+        irsend.sendNEC(dataNEC);
         avAux = false;
         Serial.println("avAux");
     };
     thing["webavPresetUp"] << [](pson &in) {
         avPresetUp = in;
-        IRavPresetUp();
+        dataNEC = 0x5EA108F7;
+        irsend.sendNEC(dataNEC);
         avPresetUp = false;
         Serial.println("avPresetUp");
     };
     thing["webavPresetDown"] << [](pson &in) {
         avPresetDown = in;
-        IRavPresetDown();
+        dataNEC = 0x5EA18877;
+        irsend.sendNEC(dataNEC);
         avPresetDown = false;
         Serial.println("avPresetDown");
     };
     thing["webavMov"] << [](pson &in) {
         avMov = in;
-        IRavMov();
+        dataNEC = 0x5EA1F10E;
+        irsend.sendNEC(dataNEC);
         avMov = false;
         Serial.println("avMov");
     };
     thing["webavEnt"] << [](pson &in) {
         avEnt = in;
-        IRavEnt();
+        dataNEC = 0x5EA1D12E;
+        irsend.sendNEC(dataNEC);
         avEnt = false;
         Serial.println("avEnt");
     };
     thing["webLamp"] << [](pson &in) {
         webLight = in;
-        webLamp();
+        http.begin(url);
+        http.GET();
         webLight = false;
         Serial.println("webLamp");
     };
@@ -367,14 +412,22 @@ void setup()
     thing["webledstripOff"] << [](pson &in) {
         dataNEC = 0xFF02FD;
         requested = false;
-        sendStripCode();
+        if (requested == !boolStripStatus)
+        {
+            irsend.sendNEC(dataNEC);
+            boolStripStatus = !boolStripStatus;
+        }
         Serial.println("ledstripOff");
     };
 
     thing["webledstripOn"] << [](pson &in) {
         dataNEC = 0xFF02FD;
         requested = true;
-        sendStripCode();
+        if (requested == !boolStripStatus)
+        {
+            irsend.sendNEC(dataNEC);
+            boolStripStatus = !boolStripStatus;
+        }
         Serial.println("ledstripOn");
     };
 
@@ -383,13 +436,21 @@ void setup()
         {
             dataNEC = 0xFF02FD;
             requested = true;
-            sendStripCode();
+            if (requested == !boolStripStatus)
+            {
+                irsend.sendNEC(dataNEC);
+                boolStripStatus = !boolStripStatus;
+            }
         }
         else
         {
             dataNEC = 0xFF02FD;
             requested = false;
-            sendStripCode();
+            if (requested == !boolStripStatus)
+            {
+                irsend.sendNEC(dataNEC);
+                boolStripStatus = !boolStripStatus;
+            }
         }
         Serial.println("ledstripSwitch");
     };
@@ -403,118 +464,45 @@ void loop()
     thing.handle();
     SinricPro.handle();
     digitalWrite(RELAY, led);
-    if (boolStripStatus == false) {
-    stripStatus = 0;
-  } else if (boolStripStatus == true) {
-    stripStatus = 1;
-  }
+    if (boolStripStatus == false)
+    {
+        stripStatus = 0;
+    }
+    else if (boolStripStatus == true)
+    {
+        stripStatus = 1;
+    }
 }
 
-void dhtRead() {
+void dhtRead()
+{
     float h = dht.readHumidity();
-  // Read temperature as Celsius (the default)
-  float t = dht.readTemperature();
-  // Read temperature as Fahrenheit (isFahrenheit = true)
-  float f = dht.readTemperature(true);
+    // Read temperature as Celsius (the default)
+    float t = dht.readTemperature();
+    // Read temperature as Fahrenheit (isFahrenheit = true)
+    float f = dht.readTemperature(true);
 
-  // Check if any reads failed and exit early (to try again).
-  if (isnan(h) || isnan(t) || isnan(f)) {
-    Serial.println(F("Failed to read from DHT sensor!"));
-    return;
-  }
+    // Check if any reads failed and exit early (to try again).
+    if (isnan(h) || isnan(t) || isnan(f))
+    {
+        Serial.println(F("Failed to read from DHT sensor!"));
+        return;
+    }
 
-  // Compute heat index in Fahrenheit (the default)
-  float hif = dht.computeHeatIndex(f, h);
-  // Compute heat index in Celsius (isFahreheit = false)
-  float hic = dht.computeHeatIndex(t, h, false);
+    // Compute heat index in Fahrenheit (the default)
+    float hif = dht.computeHeatIndex(f, h);
+    // Compute heat index in Celsius (isFahreheit = false)
+    float hic = dht.computeHeatIndex(t, h, false);
     Serial.print(F("Humidity: "));
-     Serial.print(h);
-     Serial.print(F("%  Temperature: "));
-     Serial.print(t);
-     Serial.print(F("°C "));
-     Serial.print(f);
-     Serial.print(F("°F  Heat index: "));
-     Serial.print(hic);
-     Serial.print(F("°C "));
-     Serial.print(hif);
-     Serial.println(F("°F"));
+    Serial.print(h);
+    Serial.print(F("%  Temperature: "));
+    Serial.print(t);
+    Serial.print(F("°C "));
+    Serial.print(f);
+    Serial.print(F("°F  Heat index: "));
+    Serial.print(hic);
+    Serial.print(F("°C "));
+    Serial.print(hif);
+    Serial.println(F("°F"));
     delay(250);
-}
-
-void IRledstripToggle() {
-  dataNEC = 0xFF02FD;
-  sendNECcode();
-  boolStripStatus = !boolStripStatus;
-}
-void IRledstripBrighter() {
-  dataNEC = 0xFF9867;
-  sendNECcode();
-}
-void IRledstripDarker() {
-  dataNEC = 0xFF18E7;
-  sendNECcode();
-}
-void IRavPower() {
-  dataNEC = 0x5EA1F807;
-  sendNECcode();
-}
-void IRavVolup() {
-  dataNEC = 0x5EA158A7;
-  sendNECcode();
-}
-void IRavVoldown() {
-  dataNEC = 0x5EA1D827;
-  sendNECcode();
-}
-void IRavMute() {
-  dataNEC = 0x5EA138C7;
-  sendNECcode();
-}
-void IRavDVD() {
-  dataNEC = 0x5EA1837C;
-  sendNECcode();
-}
-void IRavTuner() {
-  dataNEC = 0x5EA16897;
-  sendNECcode();
-}
-void IRavAux() {
-  dataNEC = 0x5EA1AA55;
-  sendNECcode();
-}
-void IRavPresetUp() {
-  dataNEC = 0x5EA108F7;
-  sendNECcode();
-}
-void IRavPresetDown() {
-  dataNEC = 0x5EA18877;
-  sendNECcode();
-}
-
-void IRavMov() {
-  dataNEC = 0x5EA1F10E;
-  sendNECcode();
-}
-
-void IRavEnt() {
-  dataNEC = 0x5EA1D12E;
-  sendNECcode();
-}
-void sendNECcode() {
-  irsend.sendNEC(dataNEC);
-}
-//void sendSamsungCode() {
-//  irsend.sendSAMSUNG(dataSamsung, 32);
-//}
-
-void webLamp() {
-  http.begin("");
-  http.GET();
-}
-
-void sendStripCode() {
-  if (requested == !boolStripStatus) {
-    irsend.sendNEC(dataNEC);
-    boolStripStatus = !boolStripStatus;
-  }
 }
