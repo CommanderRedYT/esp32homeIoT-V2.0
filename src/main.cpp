@@ -22,31 +22,21 @@
 
 bool led = false;
 bool wol = false;
-bool ledstripToggle = false;
-bool ledstripBrighter = false;
-bool ledstripDarker = false;
-bool avPower = false;
-bool avVolup = false;
-bool avVoldown = false;
-bool avMute = false;
-bool avDVD = false;
-bool avTuner = false;
-bool avAux = false;
-bool avPresetUp = false;
-bool avPresetDown = false;
-bool avMov = false;
-bool avEnt = false;
-bool webLight = false;
 bool boolStripStatus = false;
 bool requested = false;
 
 int stripStatus = 0;
+int volume = 0;
+int toVolume = 0;
+int voldelay = 100;
 
 unsigned int dataNEC = 0x00000000;
 
 float h;
 float t;
 float hic;
+
+void resetVolume();
 
 ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 HTTPClient http;
@@ -234,6 +224,9 @@ void setup()
     setupSinricPro();
     pinMode(RELAY, OUTPUT);
 
+    thing["reboot"] << [](pson &in) {
+        if(in) ESP.restart();
+    };
     thing["led"] << [](pson &in) {
         led = in;
     };
@@ -248,109 +241,79 @@ void setup()
         }
     };
     thing["webledstripToggle"] << [](pson &in) {
-        ledstripToggle = in;
         dataNEC = 0xFF02FD;
         irsend.sendNEC(dataNEC);
         boolStripStatus = !boolStripStatus;
-        ledstripToggle = false;
         Serial.println("ledstripToggle");
     };
     thing["webledstripBrighter"] << [](pson &in) {
-        ledstripBrighter = in;
         dataNEC = 0xFF9867;
         irsend.sendNEC(dataNEC);
-        ledstripBrighter = false;
         Serial.println("ledstripBrighter");
     };
     thing["webledstripDarker"] << [](pson &in) {
-        ledstripDarker = in;
         dataNEC = 0xFF18E7;
         irsend.sendNEC(dataNEC);
-        ledstripDarker = false;
         Serial.println("ledstripDarker");
     };
     thing["webavPower"] << [](pson &in) {
-        avPower = in;
         dataNEC = 0x5EA1F807;
         irsend.sendNEC(dataNEC);
-        avPower = false;
         Serial.println("webavPower");
     };
     thing["webavVolup"] << [](pson &in) {
-        avVolup = in;
         dataNEC = 0x5EA158A7;
         irsend.sendNEC(dataNEC);
-        avVolup = false;
         Serial.println("avVolup");
     };
     thing["webavVoldown"] << [](pson &in) {
-        avVoldown = in;
         dataNEC = 0x5EA1D827;
         irsend.sendNEC(dataNEC);
-        avVoldown = false;
         Serial.println("avVoldown");
     };
     thing["webavMute"] << [](pson &in) {
-        avMute = in;
         dataNEC = 0x5EA138C7;
         irsend.sendNEC(dataNEC);
-        avMute = false;
         Serial.println("avMute");
     };
     thing["webavDVD"] << [](pson &in) {
-        avDVD = in;
         dataNEC = 0x5EA1837C;
         irsend.sendNEC(dataNEC);
-        avDVD = false;
         Serial.println("avDVD");
     };
     thing["webavTuner"] << [](pson &in) {
-        avTuner = in;
         dataNEC = 0x5EA16897;
         irsend.sendNEC(dataNEC);
-        avTuner = false;
         Serial.println("avTuner");
     };
     thing["webavAux"] << [](pson &in) {
-        avAux = in;
         dataNEC = 0x5EA1AA55;
         irsend.sendNEC(dataNEC);
-        avAux = false;
         Serial.println("avAux");
     };
     thing["webavPresetUp"] << [](pson &in) {
-        avPresetUp = in;
         dataNEC = 0x5EA108F7;
         irsend.sendNEC(dataNEC);
-        avPresetUp = false;
         Serial.println("avPresetUp");
     };
     thing["webavPresetDown"] << [](pson &in) {
-        avPresetDown = in;
         dataNEC = 0x5EA18877;
         irsend.sendNEC(dataNEC);
-        avPresetDown = false;
         Serial.println("avPresetDown");
     };
     thing["webavMov"] << [](pson &in) {
-        avMov = in;
         dataNEC = 0x5EA1F10E;
         irsend.sendNEC(dataNEC);
-        avMov = false;
         Serial.println("avMov");
     };
     thing["webavEnt"] << [](pson &in) {
-        avEnt = in;
         dataNEC = 0x5EA1D12E;
         irsend.sendNEC(dataNEC);
-        avEnt = false;
         Serial.println("avEnt");
     };
     thing["webLamp"] << [](pson &in) {
-        webLight = in;
         http.begin(url);
         http.GET();
-        webLight = false;
         Serial.println("webLamp");
     };
     thing["stripSetStatus"] << [](pson &in) {
@@ -413,14 +376,29 @@ void setup()
         }
         Serial.println("ledstripSwitch");
     };
-    thing["ifttt_hum"] >> [](pson &out) {
-        out["value1"] = dht.readHumidity();
-        out["value2"] = dht.readTemperature();
-        out["value3"] = "none";
+    thing["resetVol"] << [](pson &in) {
+        if (in)
+        resetVolume();
+        Serial.println("resetVol triggered");
+    };
+    thing["setVol"] << [](pson &in) {
+        toVolume = in;
+        if(toVolume > volume) if ((toVolume - volume) == 1) 
+        {
+            Serial.println("Difference = 1");
+            volume--;
+        }
+        if(toVolume < volume) if ((volume - toVolume) == 1) 
+        {
+        Serial.println("Difference = 1");
+        volume++;
+        }
+        Serial.println("setVol triggered");
     };
     delay(100);
     dht.begin();
     irsend.begin();
+    resetVolume();
 }
 
 void loop()
@@ -435,6 +413,22 @@ void loop()
     else if (boolStripStatus == true)
     {
         stripStatus = 1;
+    }
+    if(toVolume <= 3) toVolume = 4;
+    if(toVolume != volume) {
+        if(toVolume > volume) {
+            dataNEC = 0x5EA158A7;
+            irsend.sendNEC(dataNEC);
+            volume++;
+        } else if (toVolume < volume)
+        {
+            dataNEC = 0x5EA1D827;
+            irsend.sendNEC(dataNEC);
+            volume--;
+        }
+        delay(voldelay);
+        Serial.print("Volume: ");
+        Serial.println(volume);
     }
 }
 
@@ -469,4 +463,20 @@ void dhtRead()
     Serial.print(hif);
     Serial.println(F("°F"));
     delay(250);
+}
+
+void resetVolume() {
+    Serial.println("Resetting volume");
+    for (int i = 0; i < 100; i++)
+    {
+        dataNEC = 0x5EA1D827;
+        irsend.sendNEC(dataNEC);
+        delay(voldelay);
+        Serial.print("Progress: ");
+        Serial.print(i);
+        Serial.println("%");
+    }
+    volume = 3;
+    Serial.println("Volume Reset done");
+    toVolume = 50;
 }
