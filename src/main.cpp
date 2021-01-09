@@ -262,14 +262,12 @@ void setup()
         Serial.println("webavPower");
     };
     thing["webavVolup"] << [](pson &in) {
-        dataNEC = 0x5EA158A7;
-        irsend.sendNEC(dataNEC);
         Serial.println("avVolup");
+        toVolume++;
     };
     thing["webavVoldown"] << [](pson &in) {
-        dataNEC = 0x5EA1D827;
-        irsend.sendNEC(dataNEC);
         Serial.println("avVoldown");
+        toVolume--;
     };
     thing["webavMute"] << [](pson &in) {
         dataNEC = 0x5EA138C7;
